@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  file-processor:
+    build: .
+    container_name: file-processor
+    depends_on:
+      - mongo
+    environment:
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: your-access-key
+      AWS_SECRET_ACCESS_KEY: your-secret-key
+      INPUT_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/input-queue
+      NOTIFIER_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/notifier-queue
+      MONGO_URI: mongodb://mongo:27017/file-processor
+    volumes:
+      - ./tmp:/tmp
+    restart: unless-stopped
+    # Optional if your app exposes a port
+    # ports:
+    #   - "3000:3000"
+
+volumes:
+  mongo_data:
