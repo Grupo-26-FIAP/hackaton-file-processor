@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hackaton-file-processor-deployment
+spec:
+  selector:
+    matchLabels:
+      app: hackaton-file-processor-deployment
+  template:
+    metadata:
+      labels:
+        app: hackaton-file-processor-deployment
+    spec:
+      containers:
+      - name: hackaton-file-processor-deployment
+        image: diname/hackaton-file-processor:latest
+        envFrom:
+        - configMapRef:
+            name: hackaton-general-settings
+        - secretRef:
+            name: hackaton-secrets
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 180
+          periodSeconds: 60
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 250m
+            memory: 100Mi
+          limits:
+            memory: 400Mi
+            cpu: 500m # 1/2 núcleo
+        ports:
+        - containerPort: 3000
