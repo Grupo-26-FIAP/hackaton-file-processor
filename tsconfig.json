@@ -17,6 +17,9 @@
     "strictBindCallApply": false,
     "forceConsistentCasingInFileNames": false,
     "noFallthroughCasesInSwitch": false,
+    "types": ["node", "jest"],
+    "moduleResolution": "node",
+    "esModuleInterop": true,
     "paths": {
       "@Domain/*": ["src/domain/*"],
       "@Infrastructure/*": ["src/infrastructure/*"],
@@ -24,5 +27,7 @@
       "@Shared/*": ["src/shared/*"],
       "@Test/*": ["test/*"]
     }
-  }
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
