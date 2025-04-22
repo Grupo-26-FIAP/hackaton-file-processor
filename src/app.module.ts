@@ -1,32 +1,31 @@
 // app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { MongooseModule } from '@nestjs/mongoose';
-import { VideoJob, VideoJobSchema } from './db/video-job.schema';
-import { VideoJobService } from './db/video-job.service';
-import { ProcessorService } from './processor/processor.service';
-import { ConsumerService } from './queue/consumer.service';
-import { NotifierProducerService } from './queue/notifier-producer.service';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { SanitizeInterceptor } from './core/interceptors/sanitize.interceptor';
+import { QueueModule } from './modules/queue/queue.module';
+import { VideoModule } from './modules/video/video.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    MongooseModule.forRootAsync({
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
-      useFactory: (config: ConfigService) => ({
-        uri: config.get<string>('MONGO_URI'),
-      }),
+      useFactory: (configService: ConfigService) =>
+        configService.get('database'),
       inject: [ConfigService],
     }),
-    MongooseModule.forFeature([
-      { name: VideoJob.name, schema: VideoJobSchema },
-    ]),
+    QueueModule,
+    VideoModule,
   ],
   providers: [
-    ProcessorService,
-    NotifierProducerService,
-    ConsumerService,
-    VideoJobService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: SanitizeInterceptor,
+    },
   ],
 })
 export class AppModule {}
