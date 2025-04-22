@@ -1,5 +1,4 @@
 import { DataSource } from 'typeorm';
-import { adminSeed } from './seeds/admin.seed';
 
 const dataSource = new DataSource({
   type: 'postgres',
@@ -19,10 +18,6 @@ async function runMigrations() {
     console.log('Running migrations...');
     await dataSource.runMigrations();
     console.log('Migrations completed successfully');
-
-    console.log('Running seeds...');
-    await adminSeed(dataSource);
-    console.log('Seeds completed successfully');
 
     await dataSource.destroy();
     console.log('Database connection closed');
