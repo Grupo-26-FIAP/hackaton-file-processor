@@ -2,6 +2,17 @@
 
 Sistema de processamento de vídeos baseado em filas usando NestJS, AWS SQS e S3.
 
+## Documentação
+
+- [Arquitetura](docs/ARCHITECTURE.md) - Visão geral da arquitetura do sistema
+- [Desenvolvimento](docs/DEVELOPMENT.md) - Guia de desenvolvimento
+- [Operações](docs/OPERATIONS.md) - Guia de operações e deploy
+- [Testes](docs/TESTING.md) - Guia de testes
+- [Técnico](docs/TECHNICAL.md) - Documentação técnica
+- [API](docs/API.md) - Documentação da API
+- [Contribuição](docs/CONTRIBUTING.md) - Guia de contribuição
+- [Segurança](docs/SECURITY.md) - Políticas de segurança
+
 ## Funcionalidades
 
 1. **Processamento de Vídeos**
