@@ -1,3 +1,6 @@
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Grupo-26-FIAP_hackaton-file-processor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Grupo-26-FIAP_hackaton-file-processor)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Grupo-26-FIAP_hackaton-file-processor&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Grupo-26-FIAP_hackaton-file-processor)
+
 # Hackathon File Processor
 
 Sistema de processamento de vídeos baseado em filas usando NestJS, AWS SQS e S3.
