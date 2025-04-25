@@ -122,13 +122,13 @@ describe('LoggerService', () => {
   describe('logger configuration', () => {
     it('should set debug level in development', async () => {
       jest.spyOn(configService, 'get').mockReturnValue('development');
-      const loggerInstance = await module.resolve<LoggerService>(LoggerService);
+      await module.resolve<LoggerService>(LoggerService);
       expect(configService.get).toHaveBeenCalledWith('NODE_ENV');
     });
 
     it('should set info level in production', async () => {
       jest.spyOn(configService, 'get').mockReturnValue('production');
-      const loggerInstance = await module.resolve<LoggerService>(LoggerService);
+      await module.resolve<LoggerService>(LoggerService);
       expect(configService.get).toHaveBeenCalledWith('NODE_ENV');
     });
   });
