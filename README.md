@@ -14,6 +14,7 @@ Sistema de processamento de vídeos baseado em filas usando NestJS, AWS SQS e S3
 - [API](docs/API.md) - Documentação da API
 - [Contribuição](docs/CONTRIBUTING.md) - Guia de contribuição
 - [Segurança](docs/SECURITY.md) - Políticas de segurança
+- [Swagger](http://localhost:3000/api/docs) - Documentação interativa da API (disponível quando a aplicação estiver em execução)
 
 ## Funcionalidades
 
@@ -146,6 +147,25 @@ npm run docs:serve
 ```
 
 ## Desenvolvimento
+
+### Documentação da API (Swagger)
+
+A documentação da API está disponível através do Swagger UI quando a aplicação está em execução:
+
+```bash
+# Inicie a aplicação
+npm run start:dev
+
+# Acesse a documentação em
+http://localhost:3000/api/docs
+```
+
+O Swagger UI fornece:
+- Documentação completa de todos os endpoints
+- Interface interativa para testar as APIs
+- Descrição detalhada dos parâmetros e respostas
+- Suporte a autenticação Bearer
+- Exemplos de requisições e respostas
 
 ### Scripts Disponíveis
 
