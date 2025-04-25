@@ -1,89 +1,50 @@
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
-import archiver from 'archiver';
-import { exec } from 'child_process';
-import { createReadStream, createWriteStream, mkdirSync, rmSync } from 'fs';
-import { VideoJobStatus } from 'src/database/enums/video-job-status.enum';
-import { NotifierProducerService } from 'src/modules/queue/producers/notifier-producer.service';
-import { ProcessorService } from 'src/modules/video/services/processor.service';
-import { VideoService } from 'src/modules/video/services/video.service';
-import { S3Service } from 'src/shared/services/s3.service';
-import { pipeline } from 'stream/promises';
+import * as child_process from 'child_process';
+import * as fs from 'fs';
+import { NotifierProducerService } from '../../../../src/modules/queue/producers/notifier-producer.service';
+import { ProcessorService } from '../../../../src/modules/video/services/processor.service';
+import { VideoService } from '../../../../src/modules/video/services/video.service';
+import { S3Service } from '../../../../src/shared/services/s3.service';
 
-// Mock all external dependencies
-jest.mock('child_process');
+type ExecCallback = (
+  error: Error | null,
+  stdout: { stdout: string; stderr: string },
+) => void;
+
 jest.mock('fs', () => ({
-  createReadStream: jest.fn(),
-  createWriteStream: jest.fn(),
-  mkdirSync: jest.fn(),
-  rmSync: jest.fn(),
   promises: {
-    readFile: jest.fn(),
+    mkdtemp: jest.fn(),
     writeFile: jest.fn(),
-    mkdtemp: jest.fn().mockResolvedValue('/tmp/video-processor-123'),
-    rm: jest.fn().mockResolvedValue(undefined),
+    readFile: jest.fn(),
+    rm: jest.fn(),
   },
-}));
-jest.mock('stream/promises');
-jest.mock('archiver');
-jest.mock('@aws-sdk/client-s3', () => ({
-  S3Client: jest.fn().mockImplementation(() => ({
-    send: jest.fn().mockResolvedValue({
-      Body: {
-        [Symbol.asyncIterator]: function* () {
-          yield Buffer.from('test video data');
-        },
-      },
-    }),
+  createWriteStream: jest.fn(() => ({
+    on: jest.fn(),
+    once: jest.fn(),
+    emit: jest.fn(),
   })),
-  GetObjectCommand: jest.fn(),
-  PutObjectCommand: jest.fn(),
 }));
 
-// Mock VideoRepository
-jest.mock('src/modules/video/repositories/video.repository', () => {
-  return {
-    VideoRepository: jest.fn().mockImplementation(() => ({
-      findVideoJobById: jest.fn(),
-      updateVideoJob: jest.fn(),
-    })),
+jest.mock('child_process', () => ({
+  exec: jest.fn((command: string, callback: ExecCallback) =>
+    callback(null, { stdout: '', stderr: '' }),
+  ),
+}));
+
+jest.mock('archiver', () => {
+  const mockArchiver = {
+    pipe: jest.fn().mockReturnThis(),
+    file: jest.fn().mockReturnThis(),
+    finalize: jest.fn().mockResolvedValue(undefined),
   };
+  return jest.fn(() => mockArchiver);
 });
 
 describe('ProcessorService', () => {
   let service: ProcessorService;
-
-  const mockVideoJob = {
-    id: '1',
-    userId: 'user-123',
-    jobId: 'job-123',
-    status: VideoJobStatus.PROCESSING,
-    inputBucket: 'test-bucket',
-    inputKey: 'test-key.mp4',
-    outputBucket: 'output-bucket',
-    outputKey: 'output-key.zip',
-    error: undefined,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockConfigService = {
-    get: jest.fn().mockReturnValue('us-east-1'),
-  };
-
-  const mockVideoService = {
-    findOne: jest.fn(),
-    updateStatus: jest.fn(),
-  };
-
-  const mockNotifierProducer = {
-    sendNotification: jest.fn(),
-  };
-
-  const mockS3Service = {
-    downloadFile: jest.fn(),
-    uploadFile: jest.fn(),
-  };
+  let notifierProducer: NotifierProducerService;
+  let s3Service: S3Service;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -91,117 +52,196 @@ describe('ProcessorService', () => {
         ProcessorService,
         {
           provide: ConfigService,
-          useValue: mockConfigService,
+          useValue: {
+            get: jest.fn((key: string) => {
+              switch (key) {
+                case 'AWS_S3_INPUT_BUCKET':
+                  return 'input-bucket';
+                case 'AWS_S3_OUTPUT_BUCKET':
+                  return 'output-bucket';
+                default:
+                  return undefined;
+              }
+            }),
+          },
         },
         {
           provide: VideoService,
-          useValue: mockVideoService,
+          useValue: {
+            processVideo: jest.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: NotifierProducerService,
-          useValue: mockNotifierProducer,
+          useValue: {
+            sendNotification: jest.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: S3Service,
-          useValue: mockS3Service,
+          useValue: {
+            downloadFile: jest.fn().mockResolvedValue(Buffer.from('test')),
+            uploadFile: jest.fn().mockResolvedValue(undefined),
+          },
         },
       ],
     }).compile();
 
     service = module.get<ProcessorService>(ProcessorService);
-
-    // Mock fs functions
-    (mkdirSync as jest.Mock).mockImplementation(() => {});
-    (rmSync as jest.Mock).mockImplementation(() => {});
-    (createWriteStream as jest.Mock).mockImplementation(() => ({
-      on: jest.fn(),
-      pipe: jest.fn(),
-    }));
-    (createReadStream as jest.Mock).mockImplementation(() => ({}));
-
-    // Mock pipeline
-    (pipeline as jest.Mock).mockResolvedValue(undefined);
-
-    // Mock archiver
-    (archiver as unknown as jest.Mock).mockImplementation(() => ({
-      pipe: jest.fn(),
-      directory: jest.fn(),
-      finalize: jest.fn(),
-      on: jest.fn(),
-      file: jest.fn(),
-    }));
-
-    // Mock exec
-    (exec as unknown as jest.Mock).mockImplementation((command, callback) => {
-      callback(null, { stdout: '', stderr: '' });
-    });
+    notifierProducer = module.get<NotifierProducerService>(
+      NotifierProducerService,
+    );
+    s3Service = module.get<S3Service>(S3Service);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
   describe('handleMessage', () => {
-    it('should process a video message successfully', async () => {
-      const messageData = {
-        id: '1',
-        userId: 'user-123',
-        bucket: 'test-bucket',
-        key: 'test-key.mp4',
-      };
+    const mockMessage = {
+      userId: 'user123',
+      filesUploadedKeys: ['video1.mp4', 'video2.mp4'],
+    };
 
-      mockVideoService.findOne.mockResolvedValue(mockVideoJob);
-      mockS3Service.downloadFile.mockResolvedValue(
-        Buffer.from('test video data'),
+    beforeEach(() => {
+      (fs.promises.mkdtemp as jest.Mock).mockResolvedValue('/tmp/test');
+      (fs.promises.writeFile as jest.Mock).mockResolvedValue(undefined);
+      (fs.promises.readFile as jest.Mock).mockResolvedValue(
+        Buffer.from('test'),
       );
-      mockS3Service.uploadFile.mockResolvedValue(undefined);
-      mockVideoService.updateStatus.mockResolvedValue({
-        ...mockVideoJob,
-        status: VideoJobStatus.COMPLETED,
-      });
-
-      await service.handleMessage(messageData);
-
-      expect(mockVideoService.findOne).toHaveBeenCalledWith(messageData.id);
-      expect(mockVideoService.updateStatus).toHaveBeenCalledWith(
-        mockVideoJob.id,
-        VideoJobStatus.COMPLETED,
-      );
-
-      expect(mockNotifierProducer.sendNotification).toHaveBeenCalledWith(
-        JSON.stringify({
-          userId: mockVideoJob.userId,
-          jobId: mockVideoJob.id,
-          status: VideoJobStatus.COMPLETED,
-          message: 'Video processing completed successfully',
-        }),
+      (fs.promises.rm as jest.Mock).mockResolvedValue(undefined);
+      (child_process.exec as unknown as jest.Mock).mockImplementation(
+        (cmd: string, callback: ExecCallback) =>
+          callback(null, { stdout: 'success', stderr: '' }),
       );
     });
 
-    it('should handle errors during video processing', async () => {
-      const messageData = {
-        id: '1',
-        userId: 'user-123',
-        bucket: 'test-bucket',
-        key: 'test-key.mp4',
+    it('should process multiple videos successfully', async () => {
+      await service.handleMessage(mockMessage);
+
+      expect(s3Service.downloadFile).toHaveBeenCalledTimes(2);
+      expect(s3Service.downloadFile).toHaveBeenCalledWith(
+        'input-bucket',
+        'video1.mp4',
+      );
+      expect(s3Service.downloadFile).toHaveBeenCalledWith(
+        'input-bucket',
+        'video2.mp4',
+      );
+
+      expect(s3Service.uploadFile).toHaveBeenCalledTimes(2);
+      expect(s3Service.uploadFile).toHaveBeenCalledWith(
+        'output-bucket',
+        'processed/user123/video1.mp4',
+        expect.any(Buffer),
+      );
+      expect(s3Service.uploadFile).toHaveBeenCalledWith(
+        'output-bucket',
+        'processed/user123/video2.mp4',
+        expect.any(Buffer),
+      );
+
+      expect(notifierProducer.sendNotification).toHaveBeenCalledWith(
+        expect.stringContaining('"status":"COMPLETED"'),
+      );
+    });
+
+    it('should handle errors during video download', async () => {
+      const error = new Error('Download failed');
+      (s3Service.downloadFile as jest.Mock).mockRejectedValue(error);
+
+      await service.handleMessage(mockMessage);
+
+      expect(notifierProducer.sendNotification).toHaveBeenCalledWith(
+        expect.stringContaining('"status":"FAILED"'),
+      );
+      expect(notifierProducer.sendNotification).toHaveBeenCalledWith(
+        expect.stringContaining('Download failed'),
+      );
+    });
+
+    it('should handle errors during video upload', async () => {
+      const error = new Error('Upload failed');
+      (s3Service.uploadFile as jest.Mock).mockRejectedValue(error);
+
+      await service.handleMessage(mockMessage);
+
+      expect(notifierProducer.sendNotification).toHaveBeenCalledWith(
+        expect.stringContaining('"status":"FAILED"'),
+      );
+      expect(notifierProducer.sendNotification).toHaveBeenCalledWith(
+        expect.stringContaining('Upload failed'),
+      );
+    });
+
+    it('should handle empty filesUploadedKeys array', async () => {
+      const emptyMessage = {
+        userId: 'user123',
+        filesUploadedKeys: [],
       };
 
+      await service.handleMessage(emptyMessage);
+
+      expect(s3Service.downloadFile).not.toHaveBeenCalled();
+      expect(s3Service.uploadFile).not.toHaveBeenCalled();
+      expect(notifierProducer.sendNotification).toHaveBeenCalledWith(
+        expect.stringContaining('"status":"FAILED"'),
+      );
+    });
+
+    it('should clean up temporary files after processing', async () => {
+      await service.handleMessage(mockMessage);
+
+      expect(fs.promises.rm).toHaveBeenCalledWith('/tmp/test', {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it('should clean up temporary files even when processing fails', async () => {
       const error = new Error('Processing failed');
-      mockVideoService.findOne.mockResolvedValue(mockVideoJob);
+      (s3Service.downloadFile as jest.Mock).mockRejectedValue(error);
 
-      // Mock the downloadFromS3 method to throw an error
-      jest.spyOn(service as any, 'downloadFromS3').mockRejectedValue(error);
+      await service.handleMessage(mockMessage);
 
-      // Ensure the error is propagated
-      await expect(service.handleMessage(messageData)).rejects.toThrow(
-        'Processing failed',
+      expect(fs.promises.rm).toHaveBeenCalledWith('/tmp/test', {
+        recursive: true,
+        force: true,
+      });
+    });
+  });
+
+  describe('processVideoFile', () => {
+    it('should process video file and create zip archive', async () => {
+      const inputPath = '/tmp/test/input.mp4';
+      const outputPath = '/tmp/test/output.zip';
+
+      await (service as any).processVideoFile(inputPath, outputPath);
+
+      expect(child_process.exec).toHaveBeenCalledWith(
+        expect.stringContaining('ffmpeg -i /tmp/test/input.mp4'),
+        expect.any(Function),
+      );
+    });
+
+    it('should handle ffmpeg command errors', async () => {
+      const inputPath = '/tmp/test/input.mp4';
+      const outputPath = '/tmp/test/output.zip';
+
+      const error = new Error('FFMPEG processing failed');
+      (child_process.exec as unknown as jest.Mock).mockImplementation(
+        (cmd: string, callback: ExecCallback) =>
+          callback(error, { stdout: '', stderr: '' }),
       );
 
-      expect(mockVideoService.updateStatus).toHaveBeenCalledWith(
-        mockVideoJob.id,
-        VideoJobStatus.FAILED,
-        error.message,
-      );
+      await expect(
+        (service as any).processVideoFile(inputPath, outputPath),
+      ).rejects.toThrow('FFMPEG processing failed');
     });
   });
 });

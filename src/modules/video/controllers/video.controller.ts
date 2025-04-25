@@ -6,11 +6,19 @@ import {
   HttpStatus,
   Logger,
   Param,
+  ParseIntPipe,
   Post,
   Query,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { IPaginationOptions } from 'nestjs-typeorm-paginate';
 import { ResponseInterceptor } from '../../../core/interceptors/response.interceptor';
 import { VideoJobStatus } from '../../../database/enums/video-job-status.enum';
 import { CreateVideoJobDto } from '../dto/create-video-job.dto';
@@ -26,30 +34,16 @@ export class VideoController {
   constructor(private readonly videoService: VideoService) {}
 
   @Post()
-  @ApiOperation({
-    summary: 'Criar um novo job de processamento de vídeo',
-    description: 'Cria um novo job para processar um vídeo armazenado no S3',
-  })
+  @ApiOperation({ summary: 'Create a new video job' })
   @ApiResponse({
-    status: HttpStatus.CREATED,
-    description: 'Job criado com sucesso',
+    status: 201,
+    description: 'The video job has been successfully created.',
     type: VideoJobDto,
-  })
-  @ApiResponse({
-    status: HttpStatus.BAD_REQUEST,
-    description: 'Dados inválidos fornecidos',
-  })
-  @ApiResponse({
-    status: HttpStatus.INTERNAL_SERVER_ERROR,
-    description: 'Erro interno do servidor',
   })
   async create(
     @Body() createVideoJobDto: CreateVideoJobDto,
   ): Promise<VideoJobDto> {
-    this.logger.log(
-      `Creating new video job for user ${createVideoJobDto.userId}`,
-    );
-    return await this.videoService.create(createVideoJobDto);
+    return this.videoService.create(createVideoJobDto);
   }
 
   @Get()
@@ -70,9 +64,23 @@ export class VideoController {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     description: 'Erro interno do servidor',
   })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Número da página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Quantidade de itens por página',
+    example: 10,
+  })
   async findAll(
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
+    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
   ) {
     if (page < 1) {
       throw new BadRequestException('Page number must be greater than 0');
@@ -81,8 +89,11 @@ export class VideoController {
       throw new BadRequestException('Limit must be greater than 0');
     }
 
-    this.logger.log('Retrieving all video jobs');
-    return await this.videoService.findAll({ page, limit });
+    const options: IPaginationOptions = {
+      page,
+      limit,
+    };
+    return this.videoService.findAll(options);
   }
 
   @Get('status/:status')
@@ -94,6 +105,27 @@ export class VideoController {
     name: 'status',
     enum: VideoJobStatus,
     description: 'Status do job (processing, completed, failed)',
+    example: 'processing',
+  })
+  @ApiQuery({
+    name: 'userId',
+    required: true,
+    description: 'ID do usuário para filtrar os jobs',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Número da página',
+    example: 1,
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Quantidade de itens por página',
+    example: 10,
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -109,11 +141,15 @@ export class VideoController {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     description: 'Erro interno do servidor',
   })
-  async getByStatus(
+  async findByStatus(
     @Param('status') status: VideoJobStatus,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
+    @Query('userId') userId: string,
+    @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
   ) {
+    if (!userId) {
+      throw new BadRequestException('UserId is required');
+    }
     if (page < 1) {
       throw new BadRequestException('Page number must be greater than 0');
     }
@@ -121,8 +157,11 @@ export class VideoController {
       throw new BadRequestException('Limit must be greater than 0');
     }
 
-    this.logger.log(`Retrieving video jobs with status: ${status}`);
-    return await this.videoService.getByStatus(status, { page, limit });
+    const options: IPaginationOptions = {
+      page,
+      limit,
+    };
+    return this.videoService.findByStatus(status, userId, options);
   }
 
   @Get(':id')

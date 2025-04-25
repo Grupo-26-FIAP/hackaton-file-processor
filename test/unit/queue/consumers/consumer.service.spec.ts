@@ -122,6 +122,8 @@ describe('ConsumerService', () => {
     service = module.get<ConsumerService>(ConsumerService);
     // @ts-expect-error - Replace SQS client with mock
     service['sqs'] = mockSQSClient;
+    // @ts-expect-error - Replace logger with mock
+    service['logger'] = mockLogger;
   });
 
   afterEach(() => {
@@ -148,55 +150,34 @@ describe('ConsumerService', () => {
       await service.onModuleInit();
       expect(pollQueueSpy).toHaveBeenCalled();
     });
+
+    it('should handle initialization error', async () => {
+      const error = new Error('Initialization error');
+      jest.spyOn(service as any, 'pollQueue').mockRejectedValue(error);
+
+      await service.onModuleInit();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Erro ao inicializar o consumidor: Initialization error',
+        error.stack,
+      );
+    });
+
+    it('should stop processing when module is destroyed', async () => {
+      // Set isProcessing to true
+      Object.defineProperty(service, 'isProcessing', {
+        value: true,
+        writable: true,
+      });
+
+      await service.onModuleDestroy();
+
+      // Check isProcessing value
+      expect(service['isProcessing']).toBe(false);
+    });
   });
 
-  describe('pollQueue', () => {
-    const mockPollQueueImplementation = async () => {
-      try {
-        const command = new ReceiveMessageCommand({
-          QueueUrl: mockQueueConfig.inputQueueUrl,
-          MaxNumberOfMessages: mockQueueConfig.maxConcurrentProcessing,
-          WaitTimeSeconds: mockQueueConfig.waitTimeSeconds,
-          VisibilityTimeout: mockQueueConfig.visibilityTimeout,
-        });
-
-        const response = await mockSQSClient.send(command);
-        const messages = response.Messages ?? [];
-
-        if (messages.length > 0) {
-          mockLogger.log(`Processando ${messages.length} mensagens`);
-          await Promise.all(
-            messages.map(async (msg) => {
-              try {
-                const body = JSON.parse(msg.Body!);
-                await mockProcessorService.handleMessage(body);
-
-                await mockSQSClient.send(
-                  new DeleteMessageCommand({
-                    QueueUrl: mockQueueConfig.inputQueueUrl,
-                    ReceiptHandle: msg.ReceiptHandle!,
-                  }),
-                );
-                mockLogger.log(
-                  `Mensagem processada com sucesso: ${msg.MessageId}`,
-                );
-              } catch (err) {
-                mockLogger.error(
-                  `Falha ao processar mensagem ${msg.MessageId}: ${err.message}`,
-                  err.stack,
-                );
-              }
-            }),
-          );
-        }
-      } catch (err) {
-        mockLogger.error(
-          `Erro ao consumir mensagens da fila: ${err.message}`,
-          err.stack,
-        );
-      }
-    };
-
+  describe('message processing', () => {
     it('should process messages from SQS queue successfully', async () => {
       const mockMessages = [
         {
@@ -227,17 +208,24 @@ describe('ConsumerService', () => {
         );
 
       // Mock the pollQueue method to avoid infinite loop
-      jest
-        .spyOn(service as any, 'pollQueue')
-        .mockImplementation(mockPollQueueImplementation);
-      await service.pollQueue();
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        const messages = await service['receiveMessages']();
+        if (messages.length > 0) {
+          mockLogger.log(`Processando ${messages.length} mensagens`);
+          await Promise.all(
+            messages.map((msg) => service['processMessage'](msg)),
+          );
+        }
+      });
+
+      await service.onModuleInit();
 
       expect(mockProcessorService.handleMessage).toHaveBeenCalledWith({
         id: '123',
         type: 'video',
       });
       expect(mockSQSClient.send).toHaveBeenCalledTimes(2); // Once for receive, once for delete
-      expect(mockLogger.log).toHaveBeenCalled();
+      expect(mockLogger.log).toHaveBeenCalledWith('Processando 1 mensagens');
     });
 
     it('should handle empty response from SQS', async () => {
@@ -262,10 +250,17 @@ describe('ConsumerService', () => {
         );
 
       // Mock the pollQueue method to avoid infinite loop
-      jest
-        .spyOn(service as any, 'pollQueue')
-        .mockImplementation(mockPollQueueImplementation);
-      await service.pollQueue();
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        const messages = await service['receiveMessages']();
+        if (messages.length > 0) {
+          mockLogger.log(`Processando ${messages.length} mensagens`);
+          await Promise.all(
+            messages.map((msg) => service['processMessage'](msg)),
+          );
+        }
+      });
+
+      await service.onModuleInit();
 
       expect(mockProcessorService.handleMessage).not.toHaveBeenCalled();
       expect(mockSQSClient.send).toHaveBeenCalledTimes(1); // Only for receive
@@ -276,10 +271,27 @@ describe('ConsumerService', () => {
       mockSQSClient.send = jest.fn().mockRejectedValue(mockError);
 
       // Mock the pollQueue method to avoid infinite loop
-      jest
-        .spyOn(service as any, 'pollQueue')
-        .mockImplementation(mockPollQueueImplementation);
-      await service.pollQueue();
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        try {
+          const messages = await service['receiveMessages']();
+          if (messages.length > 0) {
+            mockLogger.log(`Processando ${messages.length} mensagens`);
+            await Promise.all(
+              messages.map((msg) => service['processMessage'](msg)),
+            );
+          }
+        } catch (err) {
+          mockLogger.error(
+            `Erro ao consumir mensagens da fila: ${err.message}`,
+            err.stack,
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, mockQueueConfig.retryDelay),
+          );
+        }
+      });
+
+      await service.onModuleInit();
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Erro ao consumir mensagens da fila: SQS error',
@@ -317,10 +329,17 @@ describe('ConsumerService', () => {
         );
 
       // Mock the pollQueue method to avoid infinite loop
-      jest
-        .spyOn(service as any, 'pollQueue')
-        .mockImplementation(mockPollQueueImplementation);
-      await service.pollQueue();
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        const messages = await service['receiveMessages']();
+        if (messages.length > 0) {
+          mockLogger.log(`Processando ${messages.length} mensagens`);
+          await Promise.all(
+            messages.map((msg) => service['processMessage'](msg)),
+          );
+        }
+      });
+
+      await service.onModuleInit();
 
       expect(mockLogger.error).toHaveBeenCalled();
       expect(mockProcessorService.handleMessage).not.toHaveBeenCalled();
@@ -359,16 +378,285 @@ describe('ConsumerService', () => {
         );
 
       // Mock the pollQueue method to avoid infinite loop
-      jest
-        .spyOn(service as any, 'pollQueue')
-        .mockImplementation(mockPollQueueImplementation);
-      await service.pollQueue();
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        const messages = await service['receiveMessages']();
+        if (messages.length > 0) {
+          mockLogger.log(`Processando ${messages.length} mensagens`);
+          await Promise.all(
+            messages.map((msg) => service['processMessage'](msg)),
+          );
+        }
+      });
+
+      await service.onModuleInit();
 
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Falha ao processar mensagem 1: Processing failed',
         processingError.stack,
       );
       expect(mockSQSClient.send).toHaveBeenCalledTimes(1); // Only for receive, not for delete
+    });
+
+    it('should handle multiple messages in batch', async () => {
+      const mockMessages = [
+        {
+          MessageId: '1',
+          Body: JSON.stringify({ id: '123', type: 'video' }),
+          ReceiptHandle: 'receipt1',
+        },
+        {
+          MessageId: '2',
+          Body: JSON.stringify({ id: '456', type: 'video' }),
+          ReceiptHandle: 'receipt2',
+        },
+      ];
+
+      mockSQSClient.send = jest
+        .fn()
+        .mockImplementation(
+          (
+            command,
+          ): Promise<
+            ReceiveMessageCommandOutput | DeleteMessageCommandOutput
+          > => {
+            if (command instanceof ReceiveMessageCommand) {
+              return Promise.resolve({
+                Messages: mockMessages,
+                $metadata: {},
+              } as ReceiveMessageCommandOutput);
+            }
+            return Promise.resolve({
+              $metadata: {},
+            } as DeleteMessageCommandOutput);
+          },
+        );
+
+      // Mock the pollQueue method to avoid infinite loop
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        const messages = await service['receiveMessages']();
+        if (messages.length > 0) {
+          mockLogger.log(`Processando ${messages.length} mensagens`);
+          await Promise.all(
+            messages.map((msg) => service['processMessage'](msg)),
+          );
+        }
+      });
+
+      await service.onModuleInit();
+
+      expect(mockProcessorService.handleMessage).toHaveBeenCalledTimes(2);
+      expect(mockSQSClient.send).toHaveBeenCalledTimes(3); // Once for receive, twice for delete
+      expect(mockLogger.log).toHaveBeenCalledWith('Processando 2 mensagens');
+    });
+
+    it('should handle delete message failure', async () => {
+      const mockMessages = [
+        {
+          MessageId: '1',
+          Body: JSON.stringify({ id: '123', type: 'video' }),
+          ReceiptHandle: 'receipt1',
+        },
+      ];
+
+      let callCount = 0;
+      mockSQSClient.send = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            Messages: mockMessages,
+            $metadata: {},
+          });
+        }
+        if (callCount === 2) {
+          return Promise.reject(new Error('Delete message failed'));
+        }
+        // Simula parada do consumidor após a falha
+        Object.defineProperty(service, 'isProcessing', {
+          value: false,
+          writable: true,
+        });
+        return Promise.resolve({ Messages: [], $metadata: {} });
+      });
+
+      // Mock do processamento para garantir que ele seja executado
+      mockProcessorService.handleMessage = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
+      await service['pollQueue']();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        `Falha ao processar mensagem 1: Delete message failed`,
+        expect.any(String),
+      );
+      expect(mockProcessorService.handleMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle undefined message body', async () => {
+      const mockMessages = [
+        {
+          MessageId: '1',
+          ReceiptHandle: 'receipt1',
+        },
+      ];
+
+      mockSQSClient.send = jest
+        .fn()
+        .mockImplementation(
+          (
+            command,
+          ): Promise<
+            ReceiveMessageCommandOutput | DeleteMessageCommandOutput
+          > => {
+            if (command instanceof ReceiveMessageCommand) {
+              return Promise.resolve({
+                Messages: mockMessages,
+                $metadata: {},
+              } as ReceiveMessageCommandOutput);
+            }
+            return Promise.resolve({
+              $metadata: {},
+            } as DeleteMessageCommandOutput);
+          },
+        );
+
+      // Mock the pollQueue method to avoid infinite loop
+      jest.spyOn(service as any, 'pollQueue').mockImplementation(async () => {
+        const messages = await service['receiveMessages']();
+        if (messages.length > 0) {
+          mockLogger.log(`Processando ${messages.length} mensagens`);
+          await Promise.all(
+            messages.map((msg) => service['processMessage'](msg)),
+          );
+        }
+      });
+
+      await service.onModuleInit();
+
+      expect(mockLogger.error).toHaveBeenCalled();
+      expect(mockProcessorService.handleMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('pollQueue', () => {
+    it('should continue processing while isProcessing is true', async () => {
+      const mockMessages = [
+        {
+          MessageId: '1',
+          Body: JSON.stringify({ id: '123', type: 'video' }),
+          ReceiptHandle: 'receipt1',
+        },
+        {
+          MessageId: '2',
+          Body: JSON.stringify({ id: '456', type: 'video' }),
+          ReceiptHandle: 'receipt2',
+        },
+      ];
+
+      let callCount = 0;
+      mockSQSClient.send = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            Messages: mockMessages,
+            $metadata: {},
+          });
+        }
+        // Simula parada do consumidor após primeira batch
+        Object.defineProperty(service, 'isProcessing', {
+          value: false,
+          writable: true,
+        });
+        return Promise.resolve({ Messages: [], $metadata: {} });
+      });
+
+      await service['pollQueue']();
+
+      expect(mockLogger.log).toHaveBeenCalledWith('Processando 2 mensagens');
+      expect(mockProcessorService.handleMessage).toHaveBeenCalledTimes(2);
+      expect(mockSQSClient.send).toHaveBeenCalledWith(
+        expect.any(DeleteMessageCommand),
+      );
+    });
+
+    it('should retry after error with delay', async () => {
+      const error = new Error('Network error');
+      const mockMessages = [
+        {
+          MessageId: '1',
+          Body: JSON.stringify({ id: '123', type: 'video' }),
+          ReceiptHandle: 'receipt1',
+        },
+      ];
+
+      let callCount = 0;
+      mockSQSClient.send = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          throw error;
+        }
+        // Simula parada do consumidor após primeira tentativa
+        Object.defineProperty(service, 'isProcessing', {
+          value: false,
+          writable: true,
+        });
+        return Promise.resolve({
+          Messages: mockMessages,
+          $metadata: {},
+        });
+      });
+
+      const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+      await service['pollQueue']();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        `Erro ao consumir mensagens da fila: ${error.message}`,
+        error.stack,
+      );
+      expect(setTimeoutSpy).toHaveBeenCalledWith(
+        expect.any(Function),
+        mockQueueConfig.retryDelay,
+      );
+    });
+
+    it('should process multiple messages concurrently', async () => {
+      const mockMessages = Array.from({ length: 5 }, (_, i) => ({
+        MessageId: `${i + 1}`,
+        Body: JSON.stringify({ id: `${i + 1}`, type: 'video' }),
+        ReceiptHandle: `receipt${i + 1}`,
+      }));
+
+      let callCount = 0;
+      mockSQSClient.send = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve({
+            Messages: mockMessages,
+            $metadata: {},
+          });
+        }
+        // Simula parada do consumidor após primeira batch
+        Object.defineProperty(service, 'isProcessing', {
+          value: false,
+          writable: true,
+        });
+        return Promise.resolve({ Messages: [], $metadata: {} });
+      });
+
+      // Simula processamento assíncrono com diferentes tempos
+      mockProcessorService.handleMessage = jest.fn().mockImplementation(() => {
+        return new Promise((resolve) =>
+          setTimeout(resolve, Math.random() * 100),
+        );
+      });
+
+      await service['pollQueue']();
+
+      expect(mockLogger.log).toHaveBeenCalledWith('Processando 5 mensagens');
+      expect(mockProcessorService.handleMessage).toHaveBeenCalledTimes(5);
+      expect(mockSQSClient.send).toHaveBeenCalledWith(
+        expect.any(DeleteMessageCommand),
+      );
     });
   });
 });

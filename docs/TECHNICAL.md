@@ -110,6 +110,9 @@ export class VideoJob {
   @Column({ nullable: true })
   errorMessage?: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, any>;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -132,7 +135,21 @@ export class ConsumerService {
   ) {}
 
   async pollQueue(): Promise<void> {
-    // Implementação do polling da fila
+    while (this.isProcessing) {
+      try {
+        const messages = await this.receiveMessages();
+        await Promise.all(
+          messages.map((message) => this.processMessage(message)),
+        );
+      } catch (error) {
+        this.logger.error('Error polling queue:', error);
+        await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
+      }
+    }
+  }
+
+  async stopConsumer(): Promise<void> {
+    this.isProcessing = false;
   }
 }
 ```
@@ -154,6 +171,39 @@ export class ProcessorService {
 }
 ```
 
+### NotifierProducerService
+
+```typescript
+@Injectable()
+export class NotifierProducerService {
+  constructor(
+    private readonly sqsClient: SQSClient,
+    private readonly configService: ConfigService,
+    private readonly logger: Logger,
+  ) {}
+
+  async sendNotification(message: string): Promise<void> {
+    const command = new SendMessageCommand({
+      QueueUrl: this.queueUrl,
+      MessageBody: message,
+    });
+
+    await this.sqsClient.send(command);
+  }
+
+  async sendErrorNotification(error: Error): Promise<void> {
+    const message = {
+      type: 'ERROR',
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+    };
+
+    await this.sendNotification(JSON.stringify(message));
+  }
+}
+```
+
 ## Filas
 
 ### Input Queue
@@ -168,7 +218,10 @@ export class ProcessorService {
   "outputKey": "string",
   "options": {
     "frameRate": "number",
-    "quality": "string"
+    "quality": "string",
+    "metadata": {
+      "key": "value"
+    }
   }
 }
 ```
@@ -177,10 +230,10 @@ export class ProcessorService {
 
 ```json
 {
-  "id": "string",
-  "status": "string",
+  "type": "string",
   "message": "string",
-  "error": "string?"
+  "stack": "string?",
+  "timestamp": "string"
 }
 ```
 
