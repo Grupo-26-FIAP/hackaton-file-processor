@@ -6,13 +6,11 @@ import { VideoJob } from '../../../database/entities/video-job.entity';
 import { VideoJobStatus } from '../../../database/enums/video-job-status.enum';
 
 @Injectable()
-export class VideoRepository extends Repository<VideoJob> {
+export class VideoRepository {
   constructor(
     @InjectRepository(VideoJob)
     private readonly repository: Repository<VideoJob>,
-  ) {
-    super(VideoJob, repository.manager);
-  }
+  ) {}
 
   async createVideoJob(videoJob: Partial<VideoJob>): Promise<VideoJob> {
     const entity = this.repository.create(videoJob);
@@ -31,9 +29,15 @@ export class VideoRepository extends Repository<VideoJob> {
     } as FindOneOptions<VideoJob>);
   }
 
-  async findByStatus(status: VideoJobStatus, options: IPaginationOptions) {
+  async findByStatus(
+    status: VideoJobStatus,
+    userId: string,
+    options: IPaginationOptions,
+  ) {
     const queryBuilder = this.repository.createQueryBuilder('video');
-    queryBuilder.where('video.status = :status', { status });
+    queryBuilder
+      .where('video.status = :status', { status })
+      .andWhere('video.userId = :userId', { userId });
     queryBuilder.orderBy('video.createdAt', 'DESC');
     return await paginate(queryBuilder, options);
   }

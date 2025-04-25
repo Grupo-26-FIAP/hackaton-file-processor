@@ -43,47 +43,83 @@ graph TD
 #### 1.1 Estrutura
 
 ```typescript
-describe('VideoProcessor', () => {
-  let processor: VideoProcessor;
-  let s3Service: S3Service;
+describe('ConsumerService', () => {
+  let service: ConsumerService;
+  let mockSQSClient: jest.Mocked<SQSClient>;
+  let mockProcessorService: jest.Mocked<ProcessorService>;
+  let mockLogger: jest.Mocked<Logger>;
 
   beforeEach(async () => {
+    mockSQSClient = {
+      send: jest.fn(),
+    } as any;
+
+    mockProcessorService = {
+      handleMessage: jest.fn(),
+    } as any;
+
+    mockLogger = {
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        VideoProcessor,
+        ConsumerService,
         {
-          provide: S3Service,
-          useValue: mockS3Service,
+          provide: SQSClient,
+          useValue: mockSQSClient,
+        },
+        {
+          provide: ProcessorService,
+          useValue: mockProcessorService,
+        },
+        {
+          provide: Logger,
+          useValue: mockLogger,
         },
       ],
     }).compile();
 
-    processor = module.get<VideoProcessor>(VideoProcessor);
-    s3Service = module.get<S3Service>(S3Service);
+    service = module.get<ConsumerService>(ConsumerService);
   });
 
-  describe('processVideo', () => {
-    it('should process video successfully', async () => {
-      // Arrange
-      const file = Buffer.from('test');
+  describe('pollQueue', () => {
+    it('should process messages successfully', async () => {
+      const mockMessage = {
+        MessageId: '123',
+        Body: JSON.stringify({ type: 'video' }),
+      };
 
-      // Act
-      await processor.processVideo(file);
+      mockSQSClient.send
+        .mockImplementationOnce(() =>
+          Promise.resolve({ Messages: [mockMessage] }),
+        )
+        .mockImplementationOnce(() => Promise.resolve({ Messages: [] }));
 
-      // Assert
-      expect(s3Service.upload).toHaveBeenCalled();
+      await service.onModuleInit();
+      await service.stopConsumer();
+
+      expect(mockSQSClient.send).toHaveBeenCalledWith(
+        expect.any(ReceiveMessageCommand),
+      );
+      expect(mockProcessorService.handleMessage).toHaveBeenCalledWith(
+        mockMessage,
+      );
     });
 
     it('should handle errors gracefully', async () => {
-      // Arrange
-      const file = Buffer.from('test');
-      jest
-        .spyOn(s3Service, 'upload')
-        .mockRejectedValue(new Error('Upload failed'));
+      const error = new Error('SQS error');
+      mockSQSClient.send.mockRejectedValueOnce(error);
 
-      // Act & Assert
-      await expect(processor.processVideo(file)).rejects.toThrow(
-        'Upload failed',
+      await service.onModuleInit();
+      await service.stopConsumer();
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error polling queue:',
+        error,
       );
     });
   });
@@ -93,15 +129,24 @@ describe('VideoProcessor', () => {
 #### 1.2 Mocks
 
 ```typescript
-const mockS3Service = {
-  upload: jest.fn(),
-  download: jest.fn(),
-  delete: jest.fn(),
+const mockSQSClient = {
+  send: jest.fn(),
 };
 
-const mockQueueService = {
-  send: jest.fn(),
-  receive: jest.fn(),
+const mockProcessorService = {
+  handleMessage: jest.fn(),
+};
+
+const mockNotifierProducer = {
+  sendNotification: jest.fn(),
+  sendErrorNotification: jest.fn(),
+};
+
+const mockLogger = {
+  log: jest.fn(),
+  error: jest.fn(),
+  warn: jest.fn(),
+  debug: jest.fn(),
 };
 ```
 
@@ -110,9 +155,9 @@ const mockQueueService = {
 #### 2.1 Configuração
 
 ```typescript
-describe('VideoProcessing Integration', () => {
+describe('Video Processing Integration', () => {
   let app: INestApplication;
-  let mongoConnection: Connection;
+  let dataSource: DataSource;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -122,11 +167,11 @@ describe('VideoProcessing Integration', () => {
     app = moduleFixture.createNestApplication();
     await app.init();
 
-    mongoConnection = getConnectionToken();
+    dataSource = moduleFixture.get<DataSource>(DataSource);
   });
 
   afterAll(async () => {
-    await mongoConnection.close();
+    await dataSource.destroy();
     await app.close();
   });
 
@@ -143,9 +188,9 @@ describe('VideoProcessing Integration', () => {
     expect(response.status).toBe(201);
     expect(response.body).toHaveProperty('id');
 
-    const job = await mongoConnection
-      .collection('jobs')
-      .findOne({ _id: response.body.id });
+    const job = await dataSource
+      .getRepository(VideoJob)
+      .findOne({ where: { id: response.body.id } });
 
     expect(job.status).toBe('processing');
   });

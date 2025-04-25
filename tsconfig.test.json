@@ -1,4 +1,5 @@
 {
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "module": "commonjs",
     "declaration": true,
@@ -21,11 +22,10 @@
     "moduleResolution": "node",
     "esModuleInterop": true,
     "paths": {
-      "@Domain/*": ["src/domain/*"],
-      "@Infrastructure/*": ["src/infrastructure/*"],
-      "@Presentation/*": ["src/presentation/*"],
-      "@Shared/*": ["src/shared/*"],
-      "@Test/*": ["test/*"]
+      "@/*": ["src/*"],
+      "@test/*": ["test/*"],
+      "@modules/*": ["src/modules/*"],
+      "@database/*": ["src/database/*"]
     }
   },
   "include": [
@@ -37,4 +37,4 @@
     ".eslintrc.test.js"
   ],
   "exclude": ["node_modules", "dist"]
-}
+} 

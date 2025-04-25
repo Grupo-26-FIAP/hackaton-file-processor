@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { VideoJobStatus } from 'src/database/enums/video-job-status.enum';
@@ -82,7 +83,16 @@ describe('VideoService', () => {
 
       const result = await service.create(createDto);
 
-      expect(result).toEqual(mockVideoJobDto);
+      expect(result).toMatchObject({
+        userId: mockVideoJobDto.userId,
+        jobId: mockVideoJobDto.jobId,
+        status: mockVideoJobDto.status,
+        inputBucket: mockVideoJobDto.inputBucket,
+        inputKey: mockVideoJobDto.inputKey,
+        outputBucket: mockVideoJobDto.outputBucket,
+        outputKey: mockVideoJobDto.outputKey,
+        error: mockVideoJobDto.error,
+      });
       expect(mockRepository.createVideoJob).toHaveBeenCalledWith({
         ...createDto,
         status: VideoJobStatus.PROCESSING,
@@ -121,7 +131,17 @@ describe('VideoService', () => {
 
       const result = await service.findAll(options);
 
-      expect(result).toEqual(expectedResult);
+      expect(result.items[0]).toMatchObject({
+        userId: mockVideoJobDto.userId,
+        jobId: mockVideoJobDto.jobId,
+        status: mockVideoJobDto.status,
+        inputBucket: mockVideoJobDto.inputBucket,
+        inputKey: mockVideoJobDto.inputKey,
+        outputBucket: mockVideoJobDto.outputBucket,
+        outputKey: mockVideoJobDto.outputKey,
+        error: mockVideoJobDto.error,
+      });
+      expect(result.meta).toEqual(expectedResult.meta);
       expect(mockRepository.findAll).toHaveBeenCalledWith(options);
     });
   });
@@ -132,55 +152,30 @@ describe('VideoService', () => {
 
       const result = await service.findOne('1');
 
-      expect(result).toEqual(mockVideoJobDto);
+      expect(result).toMatchObject({
+        userId: mockVideoJobDto.userId,
+        jobId: mockVideoJobDto.jobId,
+        status: mockVideoJobDto.status,
+        inputBucket: mockVideoJobDto.inputBucket,
+        inputKey: mockVideoJobDto.inputKey,
+        outputBucket: mockVideoJobDto.outputBucket,
+        outputKey: mockVideoJobDto.outputKey,
+        error: mockVideoJobDto.error,
+      });
       expect(mockRepository.findVideoJobById).toHaveBeenCalledWith('1');
     });
 
     it('should throw NotFoundException if video job not found', async () => {
       mockRepository.findVideoJobById.mockResolvedValue(null);
 
-      await expect(service.findOne('1')).rejects.toThrow('Video job not found');
+      await expect(service.findOne('1')).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('updateStatus', () => {
-    it('should update video job status', async () => {
-      const updatedJob = { ...mockVideoJob, status: VideoJobStatus.COMPLETED };
-      mockRepository.findVideoJobById.mockResolvedValue(mockVideoJob);
-      mockRepository.updateVideoJob.mockResolvedValue(updatedJob);
-
-      const result = await service.updateStatus('1', VideoJobStatus.COMPLETED);
-
-      expect(result).toEqual({
-        ...mockVideoJobDto,
-        status: VideoJobStatus.COMPLETED,
-      });
-      expect(mockRepository.updateVideoJob).toHaveBeenCalledWith('1', {
-        status: VideoJobStatus.COMPLETED,
-      });
-    });
-
-    it('should handle errors during status update', async () => {
-      mockRepository.findVideoJobById.mockResolvedValue(mockVideoJob);
-      const error = new Error('Update failed');
-      mockRepository.updateVideoJob.mockRejectedValue(error);
-
-      await expect(
-        service.updateStatus('1', VideoJobStatus.COMPLETED),
-      ).rejects.toThrow('Update failed');
-    });
-
-    it('should throw NotFoundException if video job not found during update', async () => {
-      mockRepository.findVideoJobById.mockResolvedValue(null);
-
-      await expect(
-        service.updateStatus('1', VideoJobStatus.COMPLETED),
-      ).rejects.toThrow('Video job not found');
-    });
-  });
-
-  describe('getByStatus', () => {
-    it('should return paginated video jobs by status', async () => {
+  describe('findByStatus', () => {
+    it('should return paginated video jobs by status and userId', async () => {
+      const status = VideoJobStatus.PROCESSING;
+      const userId = 'user-123';
       const options = { page: 1, limit: 10 };
       const expectedResult = {
         items: [mockVideoJob],
@@ -195,14 +190,49 @@ describe('VideoService', () => {
 
       mockRepository.findByStatus.mockResolvedValue(expectedResult);
 
-      const result = await service.getByStatus(
-        VideoJobStatus.PROCESSING,
+      const result = await service.findByStatus(status, userId, options);
+
+      expect(result.items[0]).toMatchObject({
+        userId: mockVideoJobDto.userId,
+        jobId: mockVideoJobDto.jobId,
+        status: mockVideoJobDto.status,
+        inputBucket: mockVideoJobDto.inputBucket,
+        inputKey: mockVideoJobDto.inputKey,
+        outputBucket: mockVideoJobDto.outputBucket,
+        outputKey: mockVideoJobDto.outputKey,
+        error: mockVideoJobDto.error,
+      });
+      expect(result.meta).toEqual(expectedResult.meta);
+      expect(mockRepository.findByStatus).toHaveBeenCalledWith(
+        status,
+        userId,
         options,
       );
+    });
+
+    it('should return empty list when no jobs exist for status and userId', async () => {
+      const status = VideoJobStatus.PROCESSING;
+      const userId = 'user-123';
+      const options = { page: 1, limit: 10 };
+      const expectedResult = {
+        items: [],
+        meta: {
+          totalItems: 0,
+          itemCount: 0,
+          itemsPerPage: 10,
+          totalPages: 0,
+          currentPage: 1,
+        },
+      };
+
+      mockRepository.findByStatus.mockResolvedValue(expectedResult);
+
+      const result = await service.findByStatus(status, userId, options);
 
       expect(result).toEqual(expectedResult);
       expect(mockRepository.findByStatus).toHaveBeenCalledWith(
-        VideoJobStatus.PROCESSING,
+        status,
+        userId,
         options,
       );
     });

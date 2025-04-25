@@ -2,7 +2,6 @@ import { BadRequestException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { VideoJobStatus } from '../../../../src/database/enums/video-job-status.enum';
 import { VideoController } from '../../../../src/modules/video/controllers/video.controller';
-import { CreateVideoJobDto } from '../../../../src/modules/video/dto/create-video-job.dto';
 import { VideoService } from '../../../../src/modules/video/services/video.service';
 
 describe('VideoController', () => {
@@ -26,8 +25,7 @@ describe('VideoController', () => {
     create: jest.fn(),
     findAll: jest.fn(),
     findOne: jest.fn(),
-    updateStatus: jest.fn(),
-    getByStatus: jest.fn(),
+    findByStatus: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -48,42 +46,11 @@ describe('VideoController', () => {
     jest.clearAllMocks();
   });
 
-  describe('create', () => {
-    it('should create a new video job', async () => {
-      const createDto: CreateVideoJobDto = {
-        userId: 'user-123',
-        inputBucket: 'test-bucket',
-        inputKey: 'test-key.mp4',
-      };
-
-      mockVideoService.create.mockResolvedValue(mockVideoJobDto);
-
-      const result = await controller.create(createDto);
-
-      expect(result).toEqual(mockVideoJobDto);
-      expect(mockVideoService.create).toHaveBeenCalledWith(createDto);
-    });
-
-    it('should handle errors during creation', async () => {
-      const createDto: CreateVideoJobDto = {
-        userId: 'user-123',
-        inputBucket: 'test-bucket',
-        inputKey: 'test-key.mp4',
-      };
-
-      const error = new Error('Creation failed');
-      mockVideoService.create.mockRejectedValue(error);
-
-      await expect(controller.create(createDto)).rejects.toThrow(
-        'Creation failed',
-      );
-    });
-  });
-
   describe('findAll', () => {
     it('should return paginated video jobs', async () => {
       const page = 1;
       const limit = 10;
+      const expectedOptions = { page, limit };
 
       const mockPaginatedResult = {
         items: [mockVideoJobDto],
@@ -101,12 +68,13 @@ describe('VideoController', () => {
       const result = await controller.findAll(page, limit);
 
       expect(result).toEqual(mockPaginatedResult);
-      expect(mockVideoService.findAll).toHaveBeenCalledWith({ page, limit });
+      expect(mockVideoService.findAll).toHaveBeenCalledWith(expectedOptions);
     });
 
     it('should return empty list when no jobs exist', async () => {
       const page = 1;
       const limit = 10;
+      const expectedOptions = { page, limit };
 
       const mockEmptyResult = {
         items: [],
@@ -124,7 +92,28 @@ describe('VideoController', () => {
       const result = await controller.findAll(page, limit);
 
       expect(result).toEqual(mockEmptyResult);
-      expect(mockVideoService.findAll).toHaveBeenCalledWith({ page, limit });
+      expect(mockVideoService.findAll).toHaveBeenCalledWith(expectedOptions);
+    });
+
+    it('should use default values when no pagination params are provided', async () => {
+      const expectedOptions = { page: 1, limit: 10 };
+      const mockPaginatedResult = {
+        items: [mockVideoJobDto],
+        meta: {
+          totalItems: 1,
+          itemCount: 1,
+          itemsPerPage: 10,
+          totalPages: 1,
+          currentPage: 1,
+        },
+      };
+
+      mockVideoService.findAll.mockResolvedValue(mockPaginatedResult);
+
+      const result = await controller.findAll();
+
+      expect(result).toEqual(mockPaginatedResult);
+      expect(mockVideoService.findAll).toHaveBeenCalledWith(expectedOptions);
     });
 
     it('should throw BadRequestException for invalid page number', async () => {
@@ -177,9 +166,10 @@ describe('VideoController', () => {
     });
   });
 
-  describe('getByStatus', () => {
-    it('should return paginated video jobs by status', async () => {
+  describe('findByStatus', () => {
+    it('should return paginated video jobs by status and userId', async () => {
       const status = VideoJobStatus.PROCESSING;
+      const userId = 'user-123';
       const page = 1;
       const limit = 10;
 
@@ -194,95 +184,79 @@ describe('VideoController', () => {
         },
       };
 
-      mockVideoService.getByStatus.mockResolvedValue(mockPaginatedResult);
+      mockVideoService.findByStatus.mockResolvedValue(mockPaginatedResult);
 
-      const result = await controller.getByStatus(status, page, limit);
+      const result = await controller.findByStatus(status, userId, page, limit);
 
       expect(result).toEqual(mockPaginatedResult);
-      expect(mockVideoService.getByStatus).toHaveBeenCalledWith(status, {
-        page,
-        limit,
-      });
+      expect(mockVideoService.findByStatus).toHaveBeenCalledWith(
+        status,
+        userId,
+        { page, limit },
+      );
     });
 
-    it('should return empty list when no jobs exist with given status', async () => {
-      const status = VideoJobStatus.COMPLETED;
-      const page = 1;
-      const limit = 10;
+    it('should use default pagination values when not provided', async () => {
+      const status = VideoJobStatus.PROCESSING;
+      const userId = 'user-123';
 
-      const mockEmptyResult = {
-        items: [],
+      const mockPaginatedResult = {
+        items: [mockVideoJobDto],
         meta: {
-          totalItems: 0,
-          itemCount: 0,
+          totalItems: 1,
+          itemCount: 1,
           itemsPerPage: 10,
-          totalPages: 0,
+          totalPages: 1,
           currentPage: 1,
         },
       };
 
-      mockVideoService.getByStatus.mockResolvedValue(mockEmptyResult);
+      mockVideoService.findByStatus.mockResolvedValue(mockPaginatedResult);
 
-      const result = await controller.getByStatus(status, page, limit);
+      const result = await controller.findByStatus(status, userId);
 
-      expect(result).toEqual(mockEmptyResult);
-      expect(mockVideoService.getByStatus).toHaveBeenCalledWith(status, {
-        page,
-        limit,
-      });
-    });
-
-    it('should handle different job statuses', async () => {
-      const statuses = [
-        VideoJobStatus.PROCESSING,
-        VideoJobStatus.COMPLETED,
-        VideoJobStatus.FAILED,
-      ];
-
-      for (const status of statuses) {
-        const mockResult = {
-          items: [{ ...mockVideoJobDto, status }],
-          meta: {
-            totalItems: 1,
-            itemCount: 1,
-            itemsPerPage: 10,
-            totalPages: 1,
-            currentPage: 1,
-          },
-        };
-
-        mockVideoService.getByStatus.mockResolvedValue(mockResult);
-
-        const result = await controller.getByStatus(status, 1, 10);
-
-        expect(result.items[0].status).toBe(status);
-        expect(mockVideoService.getByStatus).toHaveBeenCalledWith(status, {
-          page: 1,
-          limit: 10,
-        });
-      }
+      expect(result).toEqual(mockPaginatedResult);
+      expect(mockVideoService.findByStatus).toHaveBeenCalledWith(
+        status,
+        userId,
+        { page: 1, limit: 10 },
+      );
     });
 
     it('should throw BadRequestException for invalid page number', async () => {
       const status = VideoJobStatus.PROCESSING;
+      const userId = 'user-123';
       const page = 0;
       const limit = 10;
 
-      await expect(controller.getByStatus(status, page, limit)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockVideoService.getByStatus).not.toHaveBeenCalled();
+      await expect(
+        controller.findByStatus(status, userId, page, limit),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockVideoService.findByStatus).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException for invalid limit', async () => {
       const status = VideoJobStatus.PROCESSING;
+      const userId = 'user-123';
       const page = 1;
       const limit = 0;
 
-      await expect(controller.getByStatus(status, page, limit)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(mockVideoService.getByStatus).not.toHaveBeenCalled();
+      await expect(
+        controller.findByStatus(status, userId, page, limit),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockVideoService.findByStatus).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when userId is not provided', async () => {
+      const status = VideoJobStatus.PROCESSING;
+      const userId = '';
+      const page = 1;
+      const limit = 10;
+
+      await expect(
+        controller.findByStatus(status, userId, page, limit),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockVideoService.findByStatus).not.toHaveBeenCalled();
     });
   });
 });

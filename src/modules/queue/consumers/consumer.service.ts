@@ -3,12 +3,17 @@ import {
   ReceiveMessageCommand,
   SQSClient,
 } from '@aws-sdk/client-sqs';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProcessorService } from 'src/modules/video/services/processor.service';
 
 @Injectable()
-export class ConsumerService implements OnModuleInit {
+export class ConsumerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ConsumerService.name);
   private readonly sqs: SQSClient;
   private readonly queueUrl: string;
@@ -16,6 +21,7 @@ export class ConsumerService implements OnModuleInit {
   private readonly waitTimeSeconds: number;
   private readonly visibilityTimeout: number;
   private readonly retryDelay: number;
+  private isProcessing = true;
 
   constructor(
     private readonly processorService: ProcessorService,
@@ -31,48 +37,30 @@ export class ConsumerService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    this.logger.log('Iniciando serviço de consumo de fila');
-    this.pollQueue();
+    try {
+      this.logger.log('Iniciando serviço de consumo de fila');
+      await this.pollQueue();
+    } catch (error) {
+      this.logger.error(
+        `Erro ao inicializar o consumidor: ${error.message}`,
+        error.stack,
+      );
+    }
   }
 
-  async pollQueue() {
-    while (true) {
-      try {
-        const command = new ReceiveMessageCommand({
-          QueueUrl: this.queueUrl,
-          MaxNumberOfMessages: this.maxConcurrentProcessing,
-          WaitTimeSeconds: this.waitTimeSeconds,
-          VisibilityTimeout: this.visibilityTimeout,
-        });
+  async onModuleDestroy() {
+    this.logger.log('Parando serviço de consumo de fila');
+    this.isProcessing = false;
+  }
 
-        const response = await this.sqs.send(command);
-        const messages = response.Messages ?? [];
+  private async pollQueue() {
+    while (this.isProcessing) {
+      try {
+        const messages = await this.receiveMessages();
 
         if (messages.length > 0) {
           this.logger.log(`Processando ${messages.length} mensagens`);
-          await Promise.all(
-            messages.map(async (msg) => {
-              try {
-                const body = JSON.parse(msg.Body!);
-                await this.processorService.handleMessage(body);
-
-                await this.sqs.send(
-                  new DeleteMessageCommand({
-                    QueueUrl: this.queueUrl,
-                    ReceiptHandle: msg.ReceiptHandle!,
-                  }),
-                );
-                this.logger.log(
-                  `Mensagem processada com sucesso: ${msg.MessageId}`,
-                );
-              } catch (err) {
-                this.logger.error(
-                  `Falha ao processar mensagem ${msg.MessageId}: ${err.message}`,
-                  err.stack,
-                );
-              }
-            }),
-          );
+          await Promise.all(messages.map((msg) => this.processMessage(msg)));
         }
       } catch (err) {
         this.logger.error(
@@ -81,6 +69,38 @@ export class ConsumerService implements OnModuleInit {
         );
         await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
       }
+    }
+  }
+
+  private async receiveMessages() {
+    const command = new ReceiveMessageCommand({
+      QueueUrl: this.queueUrl,
+      MaxNumberOfMessages: this.maxConcurrentProcessing,
+      WaitTimeSeconds: this.waitTimeSeconds,
+      VisibilityTimeout: this.visibilityTimeout,
+    });
+
+    const response = await this.sqs.send(command);
+    return response.Messages ?? [];
+  }
+
+  private async processMessage(msg: any) {
+    try {
+      const body = JSON.parse(msg.Body!);
+      await this.processorService.handleMessage(body);
+
+      await this.sqs.send(
+        new DeleteMessageCommand({
+          QueueUrl: this.queueUrl,
+          ReceiptHandle: msg.ReceiptHandle!,
+        }),
+      );
+      this.logger.log(`Mensagem processada com sucesso: ${msg.MessageId}`);
+    } catch (err) {
+      this.logger.error(
+        `Falha ao processar mensagem ${msg.MessageId}: ${err.message}`,
+        err.stack,
+      );
     }
   }
 }

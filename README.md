@@ -1,9 +1,8 @@
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Grupo-26-FIAP_hackaton-file-processor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Grupo-26-FIAP_hackaton-file-processor)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=Grupo-26-FIAP_hackaton-file-processor&metric=coverage)](https://sonarcloud.io/summary/new_code?id=Grupo-26-FIAP_hackaton-file-processor)
-
 # Hackathon File Processor
 
 Sistema de processamento de vídeos baseado em filas usando NestJS, AWS SQS e S3.
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=Grupo-26-FIAP_hackaton-file-processor&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=Grupo-26-FIAP_hackaton-file-processor) [![License](https://img.shields.io/github/license/Grupo-26-FIAP/hackaton-file-processor)](https://github.com/Grupo-26-FIAP/hackaton-file-processor/blob/main/LICENSE) [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/) [![NestJS](https://img.shields.io/badge/NestJS-10.0-red.svg)](https://nestjs.com/) [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14-blue.svg)](https://www.postgresql.org/) [![AWS](https://img.shields.io/badge/AWS-Services-orange.svg)](https://aws.amazon.com/)
 
 ## Documentação
 
@@ -105,8 +104,45 @@ src/
 ├── database/        # Entidades e migrações
 ├── modules/         # Módulos da aplicação
 │   ├── queue/      # Processamento de filas
+│   │   ├── consumers/  # Consumidores de fila
+│   │   └── producers/  # Produtores de fila
 │   └── video/      # Processamento de vídeos
+│       ├── services/   # Serviços de vídeo
+│       └── repositories/ # Repositórios
 └── main.ts         # Ponto de entrada
+```
+
+## Scripts Disponíveis
+
+```bash
+# Desenvolvimento
+npm run start:dev
+npm run start:debug
+
+# Build
+npm run build
+npm run build:prod
+
+# Testes
+npm run test
+npm run test:watch
+npm run test:cov
+npm run test:debug
+
+# Linting
+npm run lint
+npm run lint:fix
+npm run format
+
+# Migrações
+npm run migration:generate
+npm run migration:run
+npm run migration:revert
+npm run migration:show
+
+# Documentação
+npm run docs:generate
+npm run docs:serve
 ```
 
 ## Desenvolvimento

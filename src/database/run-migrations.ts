@@ -12,7 +12,7 @@ const dataSource = new DataSource({
   synchronize: false,
 });
 
-async function runMigrations() {
+export async function runMigrations() {
   try {
     await dataSource.initialize();
     console.log('Running migrations...');
@@ -27,4 +27,6 @@ async function runMigrations() {
   }
 }
 
-runMigrations();
+if (require.main === module) {
+  runMigrations();
+}

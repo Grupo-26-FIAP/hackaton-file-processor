@@ -15,23 +15,11 @@ export class VideoService {
       ...createVideoJobDto,
       status: VideoJobStatus.PROCESSING,
     });
-    return this.mapToDto(videoJob);
+    return this.toDto(videoJob);
   }
 
-  async findAll(options: IPaginationOptions) {
-    const result = await this.videoRepository.findAll(options);
-    return {
-      ...result,
-      items: result.items.map((job) => this.mapToDto(job)),
-    };
-  }
-
-  async getByStatus(status: VideoJobStatus, options: IPaginationOptions) {
-    const result = await this.videoRepository.findByStatus(status, options);
-    return {
-      ...result,
-      items: result.items.map((job) => this.mapToDto(job)),
-    };
+  async findVideoJobById(id: string): Promise<VideoJob | null> {
+    return this.videoRepository.findVideoJobById(id);
   }
 
   async findOne(id: string): Promise<VideoJobDto> {
@@ -39,45 +27,50 @@ export class VideoService {
     if (!videoJob) {
       throw new NotFoundException('Video job not found');
     }
-    return this.mapToDto(videoJob);
+    return this.toDto(videoJob);
   }
 
-  async updateStatus(
+  async updateVideoJob(
     id: string,
+    data: Partial<VideoJob>,
+  ): Promise<VideoJob | null> {
+    return this.videoRepository.updateVideoJob(id, data);
+  }
+
+  async findAll(options: IPaginationOptions) {
+    const result = await this.videoRepository.findAll(options);
+    return {
+      ...result,
+      items: result.items.map(this.toDto),
+    };
+  }
+
+  async findByStatus(
     status: VideoJobStatus,
-    error?: string,
-  ): Promise<VideoJobDto> {
-    await this.findOne(id);
-    const videoJob = await this.videoRepository.updateVideoJob(id, {
+    userId: string,
+    options: IPaginationOptions,
+  ) {
+    const result = await this.videoRepository.findByStatus(
       status,
-      error,
-    });
-    return this.mapToDto(videoJob);
+      userId,
+      options,
+    );
+    return {
+      ...result,
+      items: result.items.map(this.toDto),
+    };
   }
 
-  async updateOutput(
-    id: string,
-    outputBucket: string,
-    outputKey: string,
-  ): Promise<VideoJobDto> {
-    await this.findOne(id);
-    const videoJob = await this.videoRepository.updateVideoJob(id, {
-      outputBucket,
-      outputKey,
-    });
-    return this.mapToDto(videoJob);
-  }
-
-  private mapToDto(videoJob: VideoJob): VideoJobDto {
+  private toDto(videoJob: VideoJob): VideoJobDto {
     return {
       id: videoJob.id,
       userId: videoJob.userId,
       jobId: videoJob.jobId,
+      status: videoJob.status,
       inputBucket: videoJob.inputBucket,
       inputKey: videoJob.inputKey,
-      outputBucket: videoJob.outputBucket || '',
-      outputKey: videoJob.outputKey || '',
-      status: videoJob.status,
+      outputBucket: videoJob.outputBucket,
+      outputKey: videoJob.outputKey,
       error: videoJob.error,
       createdAt: videoJob.createdAt,
       updatedAt: videoJob.updatedAt,

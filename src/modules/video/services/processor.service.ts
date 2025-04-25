@@ -1,8 +1,3 @@
-import {
-  GetObjectCommand,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import archiver from 'archiver';
@@ -11,7 +6,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import { VideoJobStatus } from '../../../database/enums/video-job-status.enum';
+import { S3Service } from '../../../shared/services/s3.service';
+import { FileProcessMessageDto } from '../../queue/dto/file-process-message.dto';
 import { NotifierProducerService } from '../../queue/producers/notifier-producer.service';
 import { VideoService } from './video.service';
 
@@ -20,117 +16,98 @@ const exec = promisify(execCallback);
 @Injectable()
 export class ProcessorService {
   private readonly logger = new Logger(ProcessorService.name);
-  private readonly s3Client: S3Client;
+  private readonly inputBucket: string;
+  private readonly outputBucket: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly videoService: VideoService,
     private readonly notifierProducer: NotifierProducerService,
+    private readonly s3Service: S3Service,
   ) {
-    this.s3Client = new S3Client({
-      region: this.configService.get<string>('AWS_REGION'),
-    });
+    this.inputBucket = this.configService.get<string>('AWS_S3_INPUT_BUCKET');
+    this.outputBucket = this.configService.get<string>('AWS_S3_OUTPUT_BUCKET');
   }
 
-  async handleMessage(message: any): Promise<void> {
-    try {
-      const videoJob = await this.videoService.findOne(message.id);
-      await this.processVideo(videoJob);
-    } catch (error) {
-      this.logger.error(
-        `Erro ao processar mensagem: ${error.message}`,
-        error.stack,
-      );
-      throw error;
-    }
-  }
+  async handleMessage(message: FileProcessMessageDto): Promise<void> {
+    const { userId, filesUploadedKeys } = message;
 
-  private async processVideo(videoJob: any): Promise<void> {
-    const tempDir = await fs.promises.mkdtemp(
-      path.join(os.tmpdir(), 'video-processor-'),
+    this.logger.log(
+      `Processando ${filesUploadedKeys.length} arquivos para o usuário ${userId}`,
     );
 
-    try {
-      // Download do vídeo do S3
-      const videoBuffer = await this.downloadFromS3(
-        videoJob.inputBucket,
-        videoJob.inputKey,
-      );
-      const videoPath = path.join(tempDir, 'input.mp4');
-      await fs.promises.writeFile(videoPath, videoBuffer);
-
-      // Processamento do vídeo
-      const outputPath = path.join(tempDir, 'output.zip');
-      await this.processVideoFile(videoPath, outputPath);
-
-      // Upload do resultado para o S3
-      const outputBuffer = await fs.promises.readFile(outputPath);
-      await this.uploadToS3(
-        outputBuffer,
-        videoJob.outputBucket,
-        videoJob.outputKey,
-      );
-
-      // Atualização do status
-      await this.videoService.updateStatus(
-        videoJob.id,
-        VideoJobStatus.COMPLETED,
-      );
-
-      // Notificação de sucesso
+    if (!filesUploadedKeys.length) {
       await this.notifierProducer.sendNotification(
         JSON.stringify({
-          userId: videoJob.userId,
-          jobId: videoJob.id,
-          status: VideoJobStatus.COMPLETED,
-          message: 'Video processing completed successfully',
+          userId,
+          status: 'FAILED',
+          error: 'Lista de arquivos vazia',
         }),
       );
-    } catch (error) {
-      this.logger.error(
-        `Erro ao processar vídeo: ${error.message}`,
-        error.stack,
-      );
-      await this.videoService.updateStatus(
-        videoJob.id,
-        VideoJobStatus.FAILED,
-        error.message,
-      );
-      throw error;
-    } finally {
-      // Limpeza dos arquivos temporários
-      await fs.promises.rm(tempDir, { recursive: true, force: true });
-    }
-  }
-
-  private async downloadFromS3(bucket: string, key: string): Promise<Buffer> {
-    const command = new GetObjectCommand({
-      Bucket: bucket,
-      Key: key,
-    });
-
-    const response = await this.s3Client.send(command);
-    const chunks: Buffer[] = [];
-
-    for await (const chunk of response.Body as any) {
-      chunks.push(Buffer.from(chunk));
+      return;
     }
 
-    return Buffer.concat(chunks);
-  }
+    for (const fileKey of filesUploadedKeys) {
+      const tempDir = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'video-processor-'),
+      );
 
-  private async uploadToS3(
-    fileBuffer: Buffer,
-    bucket: string,
-    key: string,
-  ): Promise<void> {
-    const command = new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: fileBuffer,
-    });
+      try {
+        // Download do vídeo do S3
+        const videoBuffer = await this.s3Service.downloadFile(
+          this.inputBucket,
+          fileKey,
+        );
+        const videoPath = path.join(tempDir, 'input.mp4');
+        await fs.promises.writeFile(videoPath, videoBuffer);
 
-    await this.s3Client.send(command);
+        // Processamento do vídeo
+        const outputPath = path.join(tempDir, 'output.zip');
+        await this.processVideoFile(videoPath, outputPath);
+
+        // Upload do resultado para o S3
+        const outputBuffer = await fs.promises.readFile(outputPath);
+        const outputKey = `processed/${userId}/${path.basename(fileKey)}`;
+        await this.s3Service.uploadFile(
+          this.outputBucket,
+          outputKey,
+          outputBuffer,
+        );
+
+        // Notificação de sucesso
+        await this.notifierProducer.sendNotification(
+          JSON.stringify({
+            userId,
+            fileKey,
+            outputKey,
+            status: 'COMPLETED',
+            message: 'Video processing completed successfully',
+          }),
+        );
+
+        this.logger.log(
+          `Vídeo ${fileKey} processado com sucesso para o usuário ${userId}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Erro ao processar vídeo ${fileKey}: ${error.message}`,
+          error.stack,
+        );
+
+        // Notificação de erro
+        await this.notifierProducer.sendNotification(
+          JSON.stringify({
+            userId,
+            fileKey,
+            status: 'FAILED',
+            error: error.message,
+          }),
+        );
+      } finally {
+        // Limpeza dos arquivos temporários
+        await fs.promises.rm(tempDir, { recursive: true, force: true });
+      }
+    }
   }
 
   private async processVideoFile(
