@@ -7,7 +7,7 @@ import {
   Post,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ResponseInterceptor } from '../../../core/interceptors/response.interceptor';
 import { NotificationResponseDto } from '../dto/notification-response.dto';
 import { NotificationDto } from '../dto/notification.dto';
@@ -16,6 +16,7 @@ import { NotifierProducerService } from '../producers/notifier-producer.service'
 @ApiTags('Notifications')
 @Controller({ path: 'queue', version: '1' })
 @UseInterceptors(ResponseInterceptor)
+@ApiBearerAuth()
 export class QueueController {
   private readonly logger = new Logger(QueueController.name);
 

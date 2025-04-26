@@ -9,6 +9,7 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  UnauthorizedException,
   UseInterceptors,
 } from '@nestjs/common';
 import {
@@ -19,6 +20,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { GetCurrentUserId } from '@Shared/decorators/get-user-id.decorator';
 import { IPaginationOptions } from 'nestjs-typeorm-paginate';
 import { ResponseInterceptor } from '../../../core/interceptors/response.interceptor';
 import { VideoJobStatus } from '../../../database/enums/video-job-status.enum';
@@ -36,6 +38,7 @@ export class VideoController {
   constructor(private readonly videoService: VideoService) {}
 
   @Post()
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new video job' })
   @ApiResponse({
     status: 201,
@@ -44,11 +47,18 @@ export class VideoController {
   })
   async create(
     @Body() createVideoJobDto: CreateVideoJobDto,
+    @GetCurrentUserId() userId: string,
   ): Promise<VideoJobDto> {
+
+    if (!userId) {
+      throw new UnauthorizedException();
+    }
+
     return this.videoService.create(createVideoJobDto);
   }
 
   @Get()
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Listar todos os jobs de vídeo',
     description: 'Retorna uma lista paginada de todos os jobs de vídeo',
@@ -83,7 +93,14 @@ export class VideoController {
   async findAll(
     @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+    @GetCurrentUserId() userId: string,
   ) {
+
+    if (!userId) {
+      throw new UnauthorizedException();
+    }
+
+
     if (page < 1) {
       throw new BadRequestException('Page number must be greater than 0');
     }
@@ -99,6 +116,7 @@ export class VideoController {
   }
 
   @Get('status/:status')
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Listar jobs por status',
     description: 'Retorna uma lista paginada de jobs filtrados por status',
@@ -148,7 +166,12 @@ export class VideoController {
     @Query('userId') userId: string,
     @Query('page', new ParseIntPipe({ optional: true })) page: number = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit: number = 10,
+    @GetCurrentUserId() userToken: string,
   ) {
+    if (!userId) {
+      throw new UnauthorizedException();
+    }
+
     if (!userId) {
       throw new BadRequestException('UserId is required');
     }
@@ -167,6 +190,7 @@ export class VideoController {
   }
 
   @Get(':id')
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Buscar job por ID',
     description: 'Retorna um job de vídeo específico pelo ID',
@@ -188,7 +212,12 @@ export class VideoController {
     status: HttpStatus.INTERNAL_SERVER_ERROR,
     description: 'Erro interno do servidor',
   })
-  async findOne(@Param('id') id: string): Promise<VideoJobDto> {
+  async findOne(@Param('id') id: string, @GetCurrentUserId() userId: string,): Promise<VideoJobDto> {
+
+    if (!userId) {
+      throw new UnauthorizedException();
+    }
+
     if (!id) {
       throw new BadRequestException('ID must not be empty');
     }
