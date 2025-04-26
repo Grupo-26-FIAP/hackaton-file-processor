@@ -12,6 +12,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiOperation,
   ApiParam,
   ApiQuery,
@@ -27,6 +28,7 @@ import { VideoService } from '../services/video.service';
 
 @ApiTags('Videos')
 @Controller({ path: 'videos', version: '1' })
+@ApiBearerAuth()
 @UseInterceptors(ResponseInterceptor)
 export class VideoController {
   private readonly logger = new Logger(VideoController.name);
