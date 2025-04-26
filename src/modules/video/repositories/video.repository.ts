@@ -13,6 +13,7 @@ export class VideoRepository {
   ) {}
 
   async createVideoJob(videoJob: Partial<VideoJob>): Promise<VideoJob> {
+
     const entity = this.repository.create(videoJob);
     return await this.repository.save(entity);
   }

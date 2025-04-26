@@ -21,6 +21,13 @@ export class FileProcessorConsumerService implements OnModuleInit {
   ) {
     this.sqsClient = new SQSClient({
       region: this.configService.get<string>('AWS_REGION'),
+      credentials: {
+        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID'),
+        secretAccessKey: this.configService.get<string>(
+          'AWS_SECRET_ACCESS_KEY',
+        ),
+        sessionToken: this.configService.get<string>('AWS_SESSION_TOKEN'),
+      },
     });
     this.queueUrl = this.configService.get<string>(
       'FILES_TO_PROCESS_QUEUE_URL',

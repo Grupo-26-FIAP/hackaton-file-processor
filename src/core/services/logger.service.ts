@@ -11,13 +11,12 @@ export class LoggerService extends Logger {
     context?: string,
   ) {
     super(context);
-    this.initializeLogger();
+    //this.initializeLogger();
   }
 
   private initializeLogger() {
     this.logger = winston.createLogger({
-      level:
-        this.configService.get('NODE_ENV') === 'production' ? 'info' : 'debug',
+      level: 'debug',
       format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.json(),

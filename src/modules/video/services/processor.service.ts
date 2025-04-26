@@ -5,6 +5,7 @@ import { exec as execCallback } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { VideoJobStatus } from 'src/database/enums/video-job-status.enum';
 import { promisify } from 'util';
 import { S3Service } from '../../../shared/services/s3.service';
 import { FileProcessMessageDto } from '../../queue/dto/file-process-message.dto';
@@ -48,33 +49,72 @@ export class ProcessorService {
     }
 
     for (const fileKey of filesUploadedKeys) {
+
+      if(fileKey.includes('erro')) {
+        this.logger.error(`Arquivo ${fileKey} não é um vídeo válido`);
+        await this.notifierProducer.sendNotification(
+          JSON.stringify({
+            userId,
+            fileKey,
+            status: 'FAILED',
+            error: 'Arquivo não é um vídeo válido',
+          }),
+        );
+        continue;
+      }
+
+
+      const videoJob = await this.videoService.create({
+        userId,
+        inputBucket: this.inputBucket,
+        inputKey: fileKey,
+      });
+      this.logger.log(`Criando job de vídeo: ${videoJob.id}`);
+
       const tempDir = await fs.promises.mkdtemp(
         path.join(os.tmpdir(), 'video-processor-'),
       );
 
       try {
-        // Download do vídeo do S3
+        this.logger.log(`iniciando download s3`);
+
         const videoBuffer = await this.s3Service.downloadFile(
           this.inputBucket,
           fileKey,
         );
+
+        this.logger.log(`download s3 finalizado`);
+
         const videoPath = path.join(tempDir, 'input.mp4');
         await fs.promises.writeFile(videoPath, videoBuffer);
 
-        // Processamento do vídeo
-        const outputPath = path.join(tempDir, 'output.zip');
+        const outputPath = path.join(tempDir, `${new Date().getTime()}-output.zip`);
         await this.processVideoFile(videoPath, outputPath);
 
-        // Upload do resultado para o S3
+        this.logger.log(`video processado: ${outputPath}`);
+
+        this.logger.log(`iniciando upload s3`);
+
         const outputBuffer = await fs.promises.readFile(outputPath);
-        const outputKey = `processed/${userId}/${path.basename(fileKey)}`;
+        const outputKey = `processed/${userId}/${path.basename(outputPath)}`;
+
+        this.logger.log(outputKey);
+
         await this.s3Service.uploadFile(
           this.outputBucket,
           outputKey,
           outputBuffer,
         );
 
-        // Notificação de sucesso
+        this.logger.log(`upload finalizado`);
+
+
+        this.videoService.updateVideoJob(videoJob.id, {
+          status: VideoJobStatus.COMPLETED,  
+          outputKey,
+        });
+
+
         await this.notifierProducer.sendNotification(
           JSON.stringify({
             userId,
@@ -94,7 +134,6 @@ export class ProcessorService {
           error.stack,
         );
 
-        // Notificação de erro
         await this.notifierProducer.sendNotification(
           JSON.stringify({
             userId,
@@ -104,8 +143,7 @@ export class ProcessorService {
           }),
         );
       } finally {
-        // Limpeza dos arquivos temporários
-        await fs.promises.rm(tempDir, { recursive: true, force: true });
+        fs.promises.rm(tempDir, { recursive: true, force: true });
       }
     }
   }
@@ -114,29 +152,78 @@ export class ProcessorService {
     inputPath: string,
     outputPath: string,
   ): Promise<void> {
-    const output = fs.createWriteStream(outputPath);
-    const archive = archiver('zip', {
-      zlib: { level: 9 },
-    });
+    const outputDir = path.dirname(outputPath);
+    const imagePattern = path.join(outputDir, 'frame-%03d.png');
 
-    archive.pipe(output);
+    // Comando FFmpeg para extrair imagens do vídeo
+    const ffmpegCommand = `ffmpeg -i ${inputPath} -vf fps=1 ${imagePattern}`;
 
-    // Adiciona o vídeo ao arquivo ZIP
-    archive.file(inputPath, { name: 'video.mp4' });
+    this.logger.log(`Executando FFmpeg para extrair imagens: ${ffmpegCommand}`);
 
-    // Executa o comando ffmpeg para processar o vídeo
-    const ffmpegCommand = `ffmpeg -i ${inputPath} -c:v libx264 -crf 23 -preset medium -c:a aac -b:a 128k ${path.join(
-      path.dirname(inputPath),
-      'processed.mp4',
-    )}`;
+    try {
+      // Executa o comando FFmpeg
+      await exec(ffmpegCommand);
 
-    await exec(ffmpegCommand);
+      this.logger.log(
+        `Imagens extraídas com sucesso para o diretório: ${outputDir}`,
+      );
 
-    // Adiciona o vídeo processado ao arquivo ZIP
-    archive.file(path.join(path.dirname(inputPath), 'processed.mp4'), {
-      name: 'processed.mp4',
-    });
+      // Verifica se as imagens foram geradas
+      const files = await fs.promises.readdir(outputDir);
+      if (files.length === 0) {
+        throw new Error('Nenhuma imagem foi gerada pelo FFmpeg.');
+      }
 
-    await archive.finalize();
+      this.logger.log(`Arquivos gerados: ${files}`);
+
+      // Compacta as imagens extraídas em um arquivo ZIP
+      const output = fs.createWriteStream(outputPath);
+      const archive = archiver('zip', {
+        zlib: { level: 9 }, // Nível de compressão
+      });
+
+      return new Promise<void>((resolve, reject) => {
+        output.on('close', () => {
+          this.logger.log(`Arquivo ZIP criado com sucesso: ${outputPath}`);
+          resolve();
+        });
+
+        output.on('error', (err) => {
+          this.logger.error(`Erro ao criar arquivo ZIP: ${err.message}`);
+          reject(err);
+        });
+
+        archive.on('error', (err) => {
+          this.logger.error(`Erro no processo de compactação: ${err.message}`);
+          reject(err);
+        });
+
+        archive.on('progress', (progress) => {
+          this.logger.log(
+            `Progresso da compactação: ${progress.entries.processed} arquivos processados.`,
+          );
+        });
+
+        archive.pipe(output);
+
+        // Adiciona todas as imagens extraídas ao arquivo ZIP
+        files.forEach((file) => {
+          const filePath = path.join(outputDir, file);
+          if (!file.endsWith('.mp4')) {
+            archive.file(filePath, { name: file });
+          }
+        });
+
+        // Finaliza o processo de compactação
+         archive.finalize();
+      });
+
+
+    } catch (error) {
+      this.logger.error(
+        `Erro ao processar vídeo e extrair imagens: ${error.message}`,
+      );
+      throw new Error('Erro ao extrair imagens do vídeo.');
+    }
   }
 }

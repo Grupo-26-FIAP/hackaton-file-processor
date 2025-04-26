@@ -15,7 +15,7 @@ export class CreateVideoJobsTable1710000000000 implements MigrationInterface {
           },
           {
             name: 'user_id',
-            type: 'uuid',
+            type: 'varchar',
             isNullable: false,
           },
           {
@@ -23,6 +23,8 @@ export class CreateVideoJobsTable1710000000000 implements MigrationInterface {
             type: 'uuid',
             isNullable: false,
             isUnique: true,
+            generationStrategy: 'uuid',
+            default: 'uuid_generate_v4()',
           },
           {
             name: 'status',
@@ -72,10 +74,6 @@ export class CreateVideoJobsTable1710000000000 implements MigrationInterface {
           },
         ],
         indices: [
-          {
-            name: 'IDX_video_jobs_user_id',
-            columnNames: ['user_id'],
-          },
           {
             name: 'IDX_video_jobs_status',
             columnNames: ['status'],

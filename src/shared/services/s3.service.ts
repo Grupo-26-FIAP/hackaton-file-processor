@@ -14,15 +14,28 @@ export class S3Service {
   constructor(private readonly configService: ConfigService) {
     this.s3 = new S3Client({
       region: this.configService.get<string>('AWS_REGION'),
+      credentials: {
+        accessKeyId: this.configService.get<string>('AWS_ACCESS_KEY_ID'),
+        secretAccessKey: this.configService.get<string>(
+          'AWS_SECRET_ACCESS_KEY',
+        ),
+        sessionToken: this.configService.get<string>('AWS_SESSION_TOKEN'),
+      },
     });
   }
 
   async downloadFile(bucket: string, key: string): Promise<Buffer> {
     try {
+      const prefix = 'raw-files/';
+      const startIndex = key.indexOf(prefix);
       const command = new GetObjectCommand({
         Bucket: bucket,
-        Key: key,
+        Key: key.substring(startIndex), // Remove leading slash if present
       });
+
+      this.logger.log(
+        `Downloading file from S3: ${bucket}/${key.substring(startIndex)}`,
+      );
 
       const response = await this.s3.send(command);
       const chunks: Uint8Array[] = [];

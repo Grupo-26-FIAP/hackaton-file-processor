@@ -4,24 +4,11 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { rateLimit } from 'express-rate-limit';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { LoggerService } from './core/services/logger.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
-    logger: new LoggerService(undefined, 'Bootstrap'),
-  });
+  const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
-  const logger = app.get(LoggerService);
-
-  // Swagger configuration
-  const config = new DocumentBuilder()
-    .setTitle('Video Processor API')
-    .setDescription('API para processamento de vídeos')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  //const logger = app.get(LoggerService);
 
   // Security headers
   app.use(
@@ -77,14 +64,20 @@ async function bootstrap() {
   );
 
   // Global prefix
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('/api');
+
+  // Swagger configuration
+  const config = new DocumentBuilder()
+    .setTitle('Video Processor API')
+    .setDescription('API para processamento de vídeos')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('docs', app, document);
 
   const port = configService.get('PORT', 3000);
   await app.listen(port);
-  logger.log(`Application is running on: http://localhost:${port}`);
-  logger.log(
-    `Swagger documentation is available at: http://localhost:${port}/api/docs`,
-  );
 }
 
 bootstrap();

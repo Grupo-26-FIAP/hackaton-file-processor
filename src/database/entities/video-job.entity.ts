@@ -9,12 +9,14 @@ import { VideoJobStatus } from '../enums/video-job-status.enum';
 
 @Entity('video_jobs')
 export class VideoJob {
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({
     name: 'user_id',
     comment: 'ID do usuário que submeteu o job',
+    type: 'varchar',
   })
   userId: string;
 
@@ -22,6 +24,8 @@ export class VideoJob {
     name: 'job_id',
     unique: true,
     comment: 'Identificador único do job',
+    generated: 'uuid',
+    type: 'uuid',
   })
   jobId: string;
 
@@ -58,6 +62,7 @@ export class VideoJob {
     name: 'output_key',
     nullable: true,
     comment: 'Chave S3 do output processado',
+    type: 'text',
   })
   outputKey: string;
 

@@ -4,6 +4,7 @@ export default registerAs('aws', () => ({
   region: process.env.AWS_REGION,
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  sessionToken: process.env.AWS_SESSION_TOKEN,
   s3: {
     inputBucket: process.env.S3_INPUT_BUCKET,
     outputBucket: process.env.S3_OUTPUT_BUCKET,

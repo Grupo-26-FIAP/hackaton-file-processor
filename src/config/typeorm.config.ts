@@ -12,6 +12,10 @@ export const typeOrmConfig = registerAs(
     password: process.env.DB_PASSWORD || 'postgres',
     database: process.env.DB_DATABASE || 'video_processor',
     entities: [VideoJob],
-    synchronize: process.env.NODE_ENV !== 'production',
+    synchronize: true,
+    autoLoadEntities: true,
+    migrationsRun: true,
+    retryAttempts: 5,
+    retryDelay: 3000,
   }),
 );
