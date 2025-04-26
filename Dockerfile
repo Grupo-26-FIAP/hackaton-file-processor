@@ -4,7 +4,7 @@ FROM node:22-alpine AS build
 WORKDIR /usr/src/app
 
 # Instalar dependências do sistema e FFmpeg
-RUN apk add --no-cache ffmpeg bash
+RUN apt-get update && apt-get install -y ffmpeg && apt-get clean
 
 # Copiar arquivos de dependências
 COPY package*.json ./
