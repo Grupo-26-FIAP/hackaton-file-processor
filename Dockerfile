@@ -1,38 +1,40 @@
-# Dockerfile
-
-FROM node:23-slim
+# Etapa de build
+FROM node:22-alpine AS build
 
 WORKDIR /usr/src/app
 
-# Install ffmpeg
-RUN apt-get update && \
-    apt-get install -y ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+# Instalar dependências do sistema e FFmpeg
+RUN apk add --no-cache ffmpeg bash
 
-# Create app directory
+# Copiar arquivos de dependências
+COPY package*.json ./
 
-
-COPY --chown=node:node package*.json ./
-
+# Instalar dependências
 RUN npm ci
 
-COPY --chown=node:node . .
+# Copiar o restante do código
+COPY . .
 
+# Construir a aplicação
 RUN npm run build
 
+# Configurar o ambiente de produção
 ENV NODE_ENV=production
 
+# Instalar apenas dependências de produção
 RUN npm ci --only=production && npm cache clean --force
 
-USER node
-
+# Etapa de produção
 FROM node:22-alpine AS production
 
 WORKDIR /usr/src/app
 
-COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
-COPY --chown=node:node --from=build /usr/src/app/dist ./dist
+# Copiar dependências e código construído da etapa anterior
+COPY --from=build /usr/src/app/node_modules ./node_modules
+COPY --from=build /usr/src/app/dist ./dist
 
+# Configurar o usuário não root
 USER node
 
+# Comando para iniciar a aplicação
 CMD [ "node", "dist/src/main.js" ]
