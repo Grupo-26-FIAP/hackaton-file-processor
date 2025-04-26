@@ -29,6 +29,8 @@ FROM node:22-alpine AS production
 
 WORKDIR /usr/src/app
 
+RUN apk add --no-cache ffmpeg bash
+
 # Copiar dependências e código construído da etapa anterior
 COPY --from=build /usr/src/app/node_modules ./node_modules
 COPY --from=build /usr/src/app/dist ./dist
