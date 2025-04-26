@@ -13,9 +13,9 @@ spec:
   ports:
     - port: 80
       name:  aws
-      targetPort: 3001
-    - port: 30101
+      targetPort: 3002
+    - port: 30102
       name:  default
       protocol: TCP
-      targetPort: 3001
+      targetPort: 3002
   type: LoadBalancer

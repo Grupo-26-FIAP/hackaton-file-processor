@@ -22,7 +22,7 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 3000
+            port: 3002
           initialDelaySeconds: 180
           periodSeconds: 60
           timeoutSeconds: 5
@@ -35,4 +35,4 @@ spec:
             memory: 400Mi
             cpu: 500m # 1/2 núcleo
         ports:
-        - containerPort: 3000
+        - containerPort: 3002

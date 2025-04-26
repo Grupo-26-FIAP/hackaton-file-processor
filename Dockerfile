@@ -21,7 +21,7 @@ COPY . .
 # COPY .env.production .env
 
 # Expose port (in case of testing HTTP)
-EXPOSE 3000
+EXPOSE 3002
 
 # Start the app
 CMD ["npm", "run", "start:prod"]
