@@ -114,17 +114,6 @@ export class ProcessorService {
           outputKey,
         });
 
-
-        await this.notifierProducer.sendNotification(
-          JSON.stringify({
-            userId,
-            fileKey,
-            outputKey,
-            status: 'COMPLETED',
-            message: 'Video processing completed successfully',
-          }),
-        );
-
         this.logger.log(
           `Vídeo ${fileKey} processado com sucesso para o usuário ${userId}`,
         );
