@@ -15,7 +15,7 @@ env:
 
 jobs:
   Deploy:
-    if: ${{ github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' }}
+    #if: ${{ github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main' }}
     name: 'Deploy Application'
     runs-on: ubuntu-latest
 
