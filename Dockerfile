@@ -37,4 +37,4 @@ COPY --from=build /usr/src/app/dist ./dist
 USER node
 
 # Comando para iniciar a aplicação
-CMD [ "node", "dist/src/main.js" ]
+CMD [ "node", "dist/main.js" ]
